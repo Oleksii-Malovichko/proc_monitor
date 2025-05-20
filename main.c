@@ -32,29 +32,22 @@ void clear_screen()
 
 void	show_header()
 {
-	printf("%-10s %-15s %-10s %-10s\n", "PID", "STATE", "USER", "COMMAND");
-	printf("-------------------------------------------------\n");
+	int width = get_terminal_width();
+	printf("%-10s %-15s %-10s %-12s %-10s\n", "PID", "STATE", "MEM%","USER", "COMMAND");
+	for (int i = 0; i < width; i++)
+		putchar('-');
+	putchar('\n');
 }
 
 void	print_structure(t_Info *info)
 {
-	printf("%-10s %-15s %-10s %-10s\n", info->pid, info->status, info->user, info->cmd);
+	printf("%-10s %-15s %-10s %-12s %-10s\n", info->pid, info->status, NULL, info->user, info->cmd);
 }
 
-char	*get_status(t_Info *info, char *find)
+char	*get_status(t_Info *info, char *find, int fd)
 {
-	int fd;
-	char path[100];
 	char *name;
 
-	snprintf(path, sizeof(path), "/proc/%s/status", info->pid);
-	fd = open(path, O_RDONLY);
-	if (fd < 0)
-	{
-		perror("open");
-		printf("path: %s\n", path);
-		return NULL;
-	}
 	name = get_next_line(fd);
 	while (name)
 	{
@@ -63,30 +56,29 @@ char	*get_status(t_Info *info, char *find)
 		free(name);
 		name = get_next_line(fd);
 	}
-	close(fd);
 	return (beauty_name(name, find));
 }
 
-char	*get_user(t_Info *info, char *find)
+char	*get_user(t_Info *info, char *find, int fd)
 {
-	char *uid_field = get_status(info, find);
+	char *uid_field = get_status(info, find, fd);
 	char *uid;
 	int i = 0;
-	int j = 0;
 	struct passwd *pwd;
 
 	if (!uid_field)
 		return NULL;
 	while (uid_field[i] && !isspace(uid_field[i]))
 		i++;
-	uid = mymalloc(i + 1);
-	uid[i] = '\0';
-	while (j < i)
+	uid = strndup(uid_field, i);
+	if (!uid)
 	{
-		uid[j] = uid_field[j];
-		j++;
+		free(uid_field);
+		return NULL;
 	}
 	pwd = getpwuid(atoi(uid));
+	if (!pwd)
+		return (free(uid), free(uid_field), NULL);
 	free(uid_field);
 	free(uid);
 	return strdup(pwd->pw_name);
@@ -103,35 +95,39 @@ int	skip_entry(struct dirent *entry)
 
 t_Info *create_info_from_entry(struct dirent *entry)
 {
-	t_Info *info = (t_Info *)mymalloc(sizeof(t_Info));
+	t_Info *info;
+	int fd;
+	char path[100];
+
+	info = (t_Info *)mymalloc(sizeof(t_Info));
 	if (!info)
 		return NULL;
-
 	memset(info, 0, sizeof(t_Info));
 	info->pid = strdup(entry->d_name);
 	if (!info->pid)
+		return (free_info(info), NULL);
+	snprintf(path, sizeof(path), "/proc/%s/status", info->pid);
+	fd = open(path, O_RDONLY);
+	if (fd < 0)
 	{
-		free_info(info);
-		return NULL;
+		return (free_info(info), NULL);
 	}
-	info->cmd = get_status(info, "Name:");
+	info->cmd = get_status(info, "Name:", fd);
 	if (!info->cmd)
 	{
-		free_info(info);
-		return NULL;
+		return (close(fd), free_info(info), NULL);
 	}
-	info->status = get_status(info, "State:");
+	info->status = get_status(info, "State:", fd);
 	if (!info->status)
 	{
-		free_info(info);
-		return NULL;
+		return (close(fd), free_info(info), NULL);
 	}
-	info->user = get_user(info, "Uid:");
+	info->user = get_user(info, "Uid:", fd);
 	if (!info->user)
 	{
-		free_info(info);
-		return NULL;
+		return (close(fd), free_info(info), NULL);
 	}
+	close(fd);
 	return info;
 }
 
@@ -166,21 +162,43 @@ void	free_lst(InfoNode *head)
 	}
 }
 
+void	show_lst(InfoNode *head)
+{
+	int term_height = get_terminal_height() - HEADER_CUT;
+	int count = 0;
+	char cur;
+	InfoNode *current;
+
+	show_header();
+
+	for (cur = 'A'; cur <= 'Z' && count < term_height; cur++)
+	{
+		current = head;
+		while (current)
+		{
+			char first = current->info->cmd[0];
+			if (toupper(first) == cur)
+			{
+				print_structure(current->info);
+				count++;
+				break;
+			}
+			current = current->next;
+		}
+	}
+}
+
 int	start_monitoring(char *name)
 {
 	InfoNode *head = NULL;
-	t_Info *info = {0};
+	t_Info *info = NULL;
 	struct dirent *entry;
 	int count = 0;
 	DIR *dir;
 
 	dir = opendir("/proc");
 	if (!dir)
-	{
-		perror("opendir");
-		return 1;
-	}
-	show_header();
+		return (perror("opendir"), 1);
 	while ((entry = readdir(dir)) != NULL)
 	{
 		if (skip_entry(entry))
@@ -194,19 +212,9 @@ int	start_monitoring(char *name)
 			continue;
 		}
 		head = add_to_list(head, info);
-		// print_structure(info);
-		// free_info(info);
-		// count++;
 	}
 	closedir(dir);
-	InfoNode *current = head;
-	while (current && count < get_terminal_height() - 3)
-	{
-		print_structure(current->info);
-		InfoNode *next = current->next;
-		current = next;
-		count++;
-	}
+	show_lst(head);
 	free_lst(head);
     return 0;
 }
@@ -220,7 +228,7 @@ int main(int argc, char *argv[])
 	// }
 	int i = 0;
 
-	while(1)
+	while(i < 10)
 	{
 		clear_screen();
 		start_monitoring(NULL);

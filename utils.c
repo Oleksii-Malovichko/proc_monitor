@@ -43,6 +43,7 @@ char	*beauty_name(char *name, char *find)
 {
 	int i = strlen(find);
 	char *new_name;
+	char *new_line;
 
 	if (!name)
 		return NULL;
@@ -50,7 +51,9 @@ char	*beauty_name(char *name, char *find)
 		i++;
 	new_name = strdup(name + i);
 	free(name);
-	new_name[strlen(new_name) - 1] = '\0';
+	new_line = strchr(new_name, '\n');
+	if (new_line)
+		*new_line = '\0';
 	return new_name;
 }
 
@@ -60,4 +63,12 @@ int get_terminal_height()
 	if(ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == -1)
 		return 24;
 	return w.ws_row;
+}
+
+int get_terminal_width()
+{
+	struct winsize w;
+	if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == -1 || w.ws_col == 24)
+		return 80;
+	return w.ws_col;
 }

@@ -13,6 +13,8 @@
 
 #include "get_next_line/get_next_line.h"
 
+#define HEADER_CUT 3
+
 typedef struct t_Info
 {
 	char *pid;
@@ -29,9 +31,10 @@ typedef struct InfoNode
 }	InfoNode;
 
 void	*mymalloc(size_t size);
-int	isNum(char *str);
+int		isNum(char *str);
 void	free_info(t_Info *info);
 char	*beauty_name(char *name, char *find);
-int get_terminal_height();
+int		get_terminal_height();
+int		get_terminal_width();
 
 #endif
