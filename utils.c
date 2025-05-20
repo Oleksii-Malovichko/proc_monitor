@@ -53,3 +53,11 @@ char	*beauty_name(char *name, char *find)
 	new_name[strlen(new_name) - 1] = '\0';
 	return new_name;
 }
+
+int get_terminal_height()
+{
+	struct winsize w;
+	if(ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == -1)
+		return 24;
+	return w.ws_row;
+}

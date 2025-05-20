@@ -17,7 +17,6 @@ man proc - описаны все поля stat, statm, status и др.
 Порядок полей в /proc/[pid]/stat строгий, но числовой — не забывай про кавычки в имени команды:
 пример: 1234 (bash) S ...*/
 
-
 /* 
 Сортировка по имени и по возрастанию pid */
 
@@ -26,7 +25,8 @@ man proc - описаны все поля stat, statm, status и др.
 void clear_screen()
 {
     // ANSI escape sequence to clear screen and move cursor to top-left
-    printf("\033[H\033[J");
+    // printf("\033[H\033[J");
+	printf("\033c");
 	fflush(stdout);
 }
 
@@ -92,73 +92,142 @@ char	*get_user(t_Info *info, char *find)
 	return strdup(pwd->pw_name);
 }
 
+int	skip_entry(struct dirent *entry)
+{
+	if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+		return 1;
+	if (!isNum(entry->d_name))
+		return 1;
+	return 0;
+}
+
+t_Info *create_info_from_entry(struct dirent *entry)
+{
+	t_Info *info = (t_Info *)mymalloc(sizeof(t_Info));
+	if (!info)
+		return NULL;
+
+	memset(info, 0, sizeof(t_Info));
+	info->pid = strdup(entry->d_name);
+	if (!info->pid)
+	{
+		free_info(info);
+		return NULL;
+	}
+	info->cmd = get_status(info, "Name:");
+	if (!info->cmd)
+	{
+		free_info(info);
+		return NULL;
+	}
+	info->status = get_status(info, "State:");
+	if (!info->status)
+	{
+		free_info(info);
+		return NULL;
+	}
+	info->user = get_user(info, "Uid:");
+	if (!info->user)
+	{
+		free_info(info);
+		return NULL;
+	}
+	return info;
+}
+
+InfoNode *add_to_list(InfoNode *head, t_Info *info)
+{
+	InfoNode *node = (InfoNode *)malloc(sizeof(InfoNode));
+	if (!node)
+		return head;
+	node->info = info;
+	node->next = NULL;
+	if (!head)
+		return node;
+	InfoNode *tmp = head;
+	while (tmp->next)
+		tmp = tmp->next;
+	tmp->next = node;
+	return head;
+}
+
+void	free_lst(InfoNode *head)
+{
+	InfoNode *current = head;
+	InfoNode *next;
+
+	while (current)
+	{
+		next = current->next;
+		if (current->info)
+			free_info(current->info);
+		free(current);
+		current = next;
+	}
+}
+
 int	start_monitoring(char *name)
 {
+	InfoNode *head = NULL;
 	t_Info *info = {0};
 	struct dirent *entry;
 	int count = 0;
-	const int limit = 20;
+	DIR *dir;
 
-	DIR *dir = opendir("/proc");
+	dir = opendir("/proc");
 	if (!dir)
 	{
 		perror("opendir");
 		return 1;
 	}
 	show_header();
-	while ((entry = readdir(dir)) != NULL && count < limit)
+	while ((entry = readdir(dir)) != NULL)
 	{
-		if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+		if (skip_entry(entry))
 			continue;
-		if (!isNum(entry->d_name))
+		info = create_info_from_entry(entry);
+		if (!info)
 			continue;
-		info = (t_Info *)mymalloc(sizeof(t_Info));
-		memset(info, 0, sizeof(t_Info));
-		info->pid = strdup(entry->d_name);
-		info->cmd = get_status(info, "Name:");
-		if (!info->cmd)
+		if (name && strcmp(info->user, name) != 0)
 		{
 			free_info(info);
-			// usleep(300000);
 			continue;
 		}
-		info->status = get_status(info, "State:");
-		if (!info->status)
-		{
-			free_info(info);
-			// usleep(300000);
-			continue;
-		}
-		info->user = get_user(info, "Uid:");
-		if (!info->user || (strcmp(info->user, name) != 0))
-		{
-			free_info(info);
-			// usleep(300000);
-			continue;
-		}
-		print_structure(info);
-		free_info(info);
-		usleep(300000);
-		count++;
+		head = add_to_list(head, info);
+		// print_structure(info);
+		// free_info(info);
+		// count++;
 	}
 	closedir(dir);
+	InfoNode *current = head;
+	while (current && count < get_terminal_height() - 3)
+	{
+		print_structure(current->info);
+		InfoNode *next = current->next;
+		current = next;
+		count++;
+	}
+	free_lst(head);
     return 0;
 }
 
 int main(int argc, char *argv[])
 {
-	if (argc != 2)
-	{
-		printf("USAGE: %s name_user\n", argv[0]);
-		return 1;
-	}
-	start_monitoring(argv[1]);
-	// while(1)
+	// if (argc != 2)
 	// {
-	// 	start_monitoring(argv[1]);
-	// 	usleep(300000);
-	// 	clear_screen();
+	// 	printf("USAGE: %s name_user\n", argv[0]);
+	// 	return 1;
 	// }
+	int i = 0;
+
+	while(1)
+	{
+		clear_screen();
+		start_monitoring(NULL);
+		// usleep(300000);
+		sleep(2);
+		i++;
+	}
     return 0;
 }
 
